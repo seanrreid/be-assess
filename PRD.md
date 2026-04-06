@@ -2,7 +2,7 @@
 
 ## One-Line Description
 
-A Claude Code skill that navigates a running web application like a user, then produces a scored behavioral economics assessment with prioritized recommendations.
+A targeted Claude Code skill that assesses specific, user-identified flows in a running web application and produces a scored behavioral economics report with prioritized recommendations. This is a scalpel, not a broadsword.
 
 ## Problem & Audience
 
@@ -12,7 +12,7 @@ This skill is for **developers and product leads** who want a structured, repeat
 
 ## Core Features (Ranked by Priority)
 
-1. **App Discovery & Flow Mapping** — Starting from a root URL, the skill navigates the app via Chrome DevTools, identifies all reachable pages and user flows, and presents them for the user to select which flows get deep-dive analysis. This is the foundation everything else depends on.
+1. **Pre-flight Intake + Targeted Discovery** — Before touching the browser, the skill runs a structured intake: what does the app do, which flows should be assessed, and what are the user's hypotheses? Only then does it navigate — starting from the root URL but mapping *top-level navigation only*, not crawling the full app. Discovery is oriented by the user's stated goals, not open-ended reconnaissance. A `--quick` flag skips intake and proceeds with defaults for repeat users. This is the foundation everything else depends on.
 
 2. **Friction-Motivation Scoring (1-10)** — Each step in a flow gets scored on Friction (cognitive load, System 2 demands, form complexity, ambiguous navigation) and Motivation (social proof, endowed progress, reward clarity). The ratio drives prioritization: high friction + low motivation = the biggest opportunities.
 
@@ -42,15 +42,16 @@ This skill is for **developers and product leads** who want a structured, repeat
 
 - **Chrome DevTools MCP** — The primary interaction mechanism. The skill uses `navigate_page`, `take_screenshot`, `click`, `fill`, `evaluate_script`, and `wait_for` to walk the app like a user.
 - **Skill format** — A Claude Code custom skill (Markdown prompt file) stored in the project's skill directory. No external dependencies or build step.
+- **`--quick` flag** — Skips the Phase 0 intake and proceeds directly to top-level nav discovery with defaults. For experienced users who already know what they want to assess.
 - **Screenshot capture** — Screenshots at each step serve as evidence in the report and help the skill "see" what a user sees. These get referenced in the Markdown output.
-- **Output location** — The generated Markdown report writes to a configurable path, defaulting to `./be-assessment/` in the project root with a timestamped filename.
+- **Output location** — The skill confirms the output path with the user before writing. Default is `./be-assessment/be-assessment-YYYY-MM-DD.md` in the project root.
 - **Behavioral frameworks** — The scoring criteria, WAM matrix, and dark pattern taxonomy are embedded in the skill prompt itself, drawn from the three reference documents in `docs/`.
 
 ## Milestones for V1
 
-### Milestone 1: Discovery Engine
+### Milestone 1: Pre-flight + Discovery Engine
 
-The skill accepts a URL, navigates the app via Chrome DevTools, maps all reachable pages/flows, captures screenshots, and presents the discovered flows to the user for selection. No scoring yet — just reliable navigation and cataloging.
+The skill runs the intake questionnaire, accepts a URL, navigates top-level navigation via Chrome DevTools, maps flows against the user's stated goals, and presents them for selection with a scope-confirmation gate for large assessments. Includes the `--quick` flag for experienced users. Also covers the full error handling layer — auth wall detection, script failures, navigation failures, per-tool fallbacks. No scoring yet — just reliable, targeted navigation and cataloging.
 
 ### Milestone 2: Scoring Framework
 
@@ -67,7 +68,7 @@ Add the Willingness-Awareness Matrix diagnostic for flows where adoption/coopera
 ## Open Questions
 
 - **Authentication** — Many apps require login. Should the skill accept credentials as input to test authenticated flows? Or should the user manually log in first and hand off the session? Security implications either way.
-- **Dynamic/SPA behavior** — Single-page apps with client-side routing may not expose flows through traditional link crawling. The discovery engine may need to detect and interact with JS-driven navigation. How robust does this need to be for V1?
+- **Dynamic/SPA behavior** — Because discovery is now top-level nav only (not full crawling), SPA routing is less of a problem for discovery. However, within a selected flow, JS-driven navigation that doesn't produce a URL change can still confuse step-tracking. V1 handles this with a logged warning and manual continuation; V2 could detect route changes via `history` API monitoring.
 - **Baseline comparisons** — Should the skill support diffing two assessments over time (before/after a redesign)? This would be powerful but adds complexity. Probably a V2 feature.
 - **Multiplayer flows** — Some behavioral patterns only surface in multi-user contexts (e.g., social proof, collaborative features). V1 likely stays single-user, but worth flagging.
 - **Report length management** — A full-app assessment could produce a very long document. Should there be a summary-only mode alongside the full report?

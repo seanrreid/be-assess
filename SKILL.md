@@ -20,10 +20,25 @@ You are a constructive critic, never a cheerleader. Nothing is ever "perfect" �
 ## Input
 
 The user provides:
-- **A URL** — either a specific page or the app root
-- **Optionally**, specific flows or pages to focus on
+- **A URL** — the app root or a specific entry point
+- **Optionally**, `--quick` to skip intake questions and proceed directly with defaults
 
-If only a root URL is provided, default to whole-app discovery mode.
+## Phase 0: Pre-flight
+
+**Check for `--quick` first.** If the invocation included `--quick`, skip to Phase 1 immediately. Defaults: top-level nav discovery, no intake questions, user selects flows after discovery.
+
+Otherwise, run the intake before opening the browser. Do not navigate to the app until Phase 0 is complete.
+
+### Intake Questions
+
+Ask the user all three questions in a single message:
+
+1. **What does this app do?** A brief description — helps frame the behavioral context for scoring.
+2. **Which flows or areas do you want assessed?** Name specific journeys: onboarding, checkout, upgrade flow, settings, cancellation, etc. If they can't answer, help them think it through before continuing:
+   > "Before we start navigating, it helps to arrive with a hypothesis. Think about: Where do users drop off? What flows feel long or confusing? Where does the product ask users to do something they resist? Which metrics look off? Start there — this skill works best when it's targeted."
+3. **Any existing hypotheses?** Known friction points, user complaints, support tickets, dark pattern concerns, or metrics that look wrong.
+
+**Do not proceed to Phase 1 until the user has identified at least one specific flow or area to assess.** Store all three answers — they inform your scoring lens, your navigation priorities, and the framing of your findings throughout the assessment.
 
 ## Phase 1: Discovery
 
@@ -80,19 +95,20 @@ If only a root URL is provided, default to whole-app discovery mode.
    })()
    ```
 
-4. **Systematically navigate** each discovered internal link/path:
-   - Visit each top-level navigation item
+4. **Navigate top-level nav items only** — do not auto-crawl sub-pages or follow body links:
+   - Visit each item in the primary navigation (nav elements, header links, sidebar top-level items)
    - Take a screenshot at each page
    - Run the catalog script at each page
-   - Note the navigation depth (how many clicks from root)
-   - Track the navigation path (breadcrumb of how you got there)
+   - Record the nav label, URL, and any immediately visible sub-navigation structure (note it but don't follow it yet)
 
-5. **Build a flow map** — organize discovered pages into logical user flows:
+5. **Build a flow map** from what you've observed at the top level — organize into logical user flows cross-referenced against the user's stated goals from Phase 0:
    - Onboarding / Sign-up flow
    - Core task flows (the main things users do)
    - Settings / Configuration flows
    - Exit / Completion flows
    - Error / Edge case states (404, empty states, etc.)
+
+   Flag which discovered flows map to the user's Phase 0 priorities.
 
 ### Present Discovered Flows
 
@@ -101,26 +117,74 @@ After discovery, present the user with what you found:
 ```
 ## Discovered Flows
 
-I navigated [X] pages starting from [URL]. Here's what I found:
+I navigated the top-level navigation of [URL] and found [X] flows. Here's how they map to your stated priorities:
 
-| # | Flow | Pages | Entry Point | Notes |
-|---|------|-------|-------------|-------|
-| 1 | [Flow name] | [count] | [URL] | [Notable observations] |
+| # | Flow | Entry Point | Maps to Your Goal? | Notes |
+|---|------|-------------|-------------------|-------|
+| 1 | [Flow name] | [URL] | ✓ / — | [Notable observations] |
 | 2 | ... | ... | ... | ... |
 
-Which flows would you like me to do a deep-dive BE assessment on? (Or say "all" for the full audit)
+Which flows would you like me to do a deep-dive BE assessment on?
 ```
 
-Wait for the user to select flows before proceeding to Phase 2.
+**If the user selects more than 5 flows** (or says "all" and more than 5 exist): pause and confirm before proceeding.
+
+```
+You've selected [X] flows. That's a substantial assessment — estimates suggest [Y] steps total.
+Would you like to:
+  a) Proceed with all [X] flows
+  b) Prioritize these [top 3 by goal alignment] and defer the rest
+  c) Pick a subset manually
+
+What would you like to do?
+```
+
+Wait for the user to confirm scope before proceeding to Phase 2.
+
+## Error Handling
+
+Apply these rules at every tool call throughout all phases. Never silently swallow failures — always log them visibly in your output.
+
+| Failure | What to do |
+|---------|-----------|
+| `navigate_page` fails or times out | Log `⚠️ Could not load [URL] — skipping.` Continue to the next item. |
+| Page redirects to a login/auth wall (URL contains `/login`, `/signin`, `/auth`, or page contains a password field with no other content) | Stop immediately. Surface: `⚠️ Auth wall detected at [URL]. Log in manually and tell me when you're ready, or skip this flow.` Wait for the user. |
+| `evaluate_script` throws (CSP, sandbox, cross-origin frame) | Log `⚠️ Catalog script failed at [URL] — proceeding with screenshot-only analysis.` Continue without catalog data. |
+| `click` does not produce navigation after a short wait | Check via `evaluate_script` whether the URL or DOM changed. If not, log `⚠️ Click on "[element]" did not navigate — possible JS-driven routing. Documenting and moving on.` |
+| `take_screenshot` fails | Log `⚠️ Screenshot unavailable at this step.` Continue. |
+| Any unexpected error mid-flow | Log the error, note which step it occurred on, and ask the user: `⚠️ Unexpected error at [step]. Continue to the next step, retry, or stop this flow?` |
 
 ## Phase 2: Deep-Dive Assessment
 
-For each selected flow, walk through it step by step. At each step:
+For each selected flow, begin with a progress announcement:
+
+```
+---
+**Assessing: [Flow Name] (Flow X of Y)**
+Entry point: [URL]
+Hypothesis: [Relevant goal from Phase 0, or "None stated"]
+---
+```
+
+Then walk through it step by step. At each step:
 
 1. **Take a screenshot** to capture the current state
 2. **Run the catalog script** to capture interactive elements and defaults
 3. **Score the step** against each BE framework (below)
 4. **Document findings** with specific observations
+
+**After completing each flow's assessment**, pause with a summary before moving to the next:
+
+```
+**Flow X of Y complete: [Flow Name]**
+Friction: [X/10] · Motivation: [X/10] · Dark pattern flags: [#] · Loss aversion risks: [#]
+
+[One sentence on the sharpest finding.]
+
+Ready to continue to [Next Flow Name]? Or would you like to adjust scope?
+```
+
+Wait for confirmation before starting the next flow.
 
 ### Scoring Frameworks
 
@@ -221,7 +285,17 @@ Diagnose which quadrant the flow's users likely fall into and recommend the matc
 
 ## Phase 3: Report Generation
 
-Generate a Markdown report file at `./be-assessment/be-assessment-YYYY-MM-DD.md` with this structure:
+Before writing anything to disk, confirm with the user:
+
+```
+Assessment complete. Ready to generate the Markdown report.
+
+Default output path: ./be-assessment/be-assessment-YYYY-MM-DD.md
+
+Is that location correct, or would you like a different path?
+```
+
+Wait for confirmation, then generate the report at the confirmed path with this structure:
 
 ```markdown
 # Behavioral Economics Assessment
